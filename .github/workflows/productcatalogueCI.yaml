@@ -21,10 +21,15 @@ jobs:
         go-version: 1.22
     
     - name: Build
-      run: go build -o product-catalog-service src/product-catalog/main.go
+      run: |
+         cd src/product-catalog
+         go mod download
+         go build -o product-catalog-service main.go
       
     - name: Unit tests
-      run: go test src/product-catalog/...
+      run: |
+        cd src/product-catalog
+        go test ./...
 
   code-quality:
     runs-on: ubuntu-latest
@@ -87,4 +92,5 @@ jobs:
         git add kubernetes/productcatalog/deploy.yaml
         git commit -m "[CI] Update image tag in k8s deployment manifest"
         git push
+
 
