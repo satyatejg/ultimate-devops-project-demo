@@ -1,0 +1,90 @@
+# I placed this github actions yaml file during practice since the cloned repository already has
+# a github actions yaml file
+
+name: product-catalog-ci
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup go 1.22
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.22
+    
+    - name: Build
+      run: go build -o product-catalog-service src/product-catalog/main.go
+      
+    - name: Unit tests
+      run: go test src/product-catalog/...
+
+  code-quality:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Run golangci-lint
+      run:  | 
+        go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.56.2
+        golangci-lint run src/product-catalog/...
+
+  docker:
+    runs-on: ubuntu-latest
+
+    needs: build
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Docker
+      uses: docker/setup-buildx-action@v1
+
+    - name: Login to docker
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }} # enter the secrets username and password in the github repository. go to the settings of the repository and click on secrets
+        password: ${{ secrets.DOCKER_TOKEN }}
+
+    - name: Docker push
+      uses: docker/build-push-action@v6
+      with:
+        context: src/product-catalog  # Path to your build context (the directory where your Dockerfile and app files are located)
+        file: src/product-catalog/Dockerfile   # Path to the Dockerfile relative to the root of the repository
+        push: true   # This ensures the built image will be pushed to the Docker registry (Docker Hub in this case)
+        tags: ${{ secrets.DOCKER_USERNAME }}/product-catalog${{github.run_id}}   # The tag for the Docker image. This is the image name that will be used to pull the image from the Docker registry
+   
+  updatek8s:
+    runs-on: ubuntu-latest
+
+    needs: docker
+
+    steps:
+    - name: checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }} # we are cloning the repository till now for the previous steps, but here we have to push a k8s yaml file with the updated image. So we need github token to push the changes to the repository
+
+    - name: Update tag in k8s deployment manifest
+      run: |
+         sed -i 's/image: .*/image: ${{ secrets.DOCKER_USERNAME }}/product-catalog:${{github.run_id}}/' kubernetes/productcatalog/deploy.yaml
+         # This command will replace the image tag in the k8s deployment manifest with the new image tag that was pushed to the Docker registry
+     
+    - name: commit and push changes
+      run: |
+        git config --global user.email "satyatej.g@gmail.com"
+        git config --global user.name "satyatejg"
+        git add kubernetes/productcatalog/deploy.yaml
+        git commit -m "[CI] Update image tag in k8s deployment manifest"
+        git push
+
